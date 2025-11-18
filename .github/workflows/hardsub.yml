@@ -3,6 +3,10 @@ name: Convert MKV to MP4 Hardsub
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   convert:
     runs-on: ubuntu-latest
@@ -11,44 +15,64 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup rclone
+      - name: Restore rclone config (from secret base64)
         run: |
-          echo "$RCLONE_CONF_BASE64" | base64 -d > rclone.conf
+          mkdir -p ~/.config/rclone
+          echo "$RCLONE_CONF_BASE64" | base64 -d > ~/.config/rclone/rclone.conf
         env:
           RCLONE_CONF_BASE64: ${{ secrets.RCLONE_CONF_BASE64 }}
 
       - name: Install rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
-          mkdir -p ~/.config/rclone
-          mv rclone.conf ~/.config/rclone/rclone.conf
+          rclone version
 
-      - name: Install FFmpeg
+      - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Download MKV & SRT from Google Drive
+      - name: Debug - list remote root (optional, helps cek remote)
         run: |
-          mkdir input
-          rclone copy gdrive:${{ secrets.GDRIVE_FOLDER_ID }} input \
-            --include "*.mkv" --include "*.srt" --fast-list
+          echo "List root of gdrive remote (harus menampilkan folder list jika config benar)"
+          rclone lsd gdrive: || true
 
-      - name: Convert all MKV + SRT to MP4 (hardsub)
+      - name: Create input folder & download MKV+SRT by folder ID
         run: |
-          mkdir output
+          mkdir -p input
+          echo "Download from folder ID: $GDRIVE_FOLDER_ID"
+          # note: gunakan format gdrive:<folderID> (tanpa slash)
+          rclone copy "gdrive:${GDRIVE_FOLDER_ID}" input --include "*.mkv" --include "*.srt" --fast-list --timeout 1m
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+
+      - name: Show downloaded files (debug)
+        run: |
+          echo "Files in input:"
+          ls -lah input || true
+
+      - name: Convert MKV + SRT to MP4 (hardsub)
+        run: |
+          mkdir -p output
+          shopt -s nullglob
+          count=0
           for mkv in input/*.mkv; do
             base=$(basename "$mkv" .mkv)
-            srt="input/$base.srt"
+            srt="input/${base}.srt"
             out="output/${base}.mp4"
-
             if [[ -f "$srt" ]]; then
               echo "Converting $base ..."
-              ffmpeg -i "$mkv" -vf "subtitles='$srt'" -c:v libx264 -crf 18 -preset medium -c:a copy "$out"
+              ffmpeg -y -i "$mkv" -vf "subtitles=${srt}" -c:v libx264 -crf 18 -preset medium -c:a copy "$out"
+              ((count++))
             else
-              echo "Subtitle untuk $base tidak ditemukan, SKIP."
+              echo "Skip $base — subtitle tidak ditemukan: $srt"
             fi
           done
+          echo "Converted files: $count"
+          ls -lah output || true
 
-      - name: Upload result to Google Drive
+      - name: Upload results back to Google Drive (folder: <GDRIVE_FOLDER>/hardsub)
         run: |
-          rclone copy output gdrive:${{ secrets.GDRIVE_FOLDER_ID }}/hardsub \
-            --progress
+          mkdir -p output || true
+          # upload ke subfolder "hardsub" di folder ID yang sama
+          rclone copy output "gdrive:${GDRIVE_FOLDER_ID}/hardsub" --progress || true
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
