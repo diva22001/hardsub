@@ -2,8 +2,7 @@ name: Convert MKV to MP4 with Hardsub
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 */6 * * *'
+  
 
 jobs:
   convert-videos:
