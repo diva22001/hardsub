@@ -1,74 +1,66 @@
-name: Convert MKV to MP4 with Hardsub
+name: Encode Video Hardsub 1080p (Manual URL)
 
 on:
   workflow_dispatch:
-  
+    inputs:
+      video_url:
+        description: "Direct URL video (mp4/mkv/avi)"
+        required: true
+        type: string
+      srt_url:
+        description: "Direct URL subtitle (.srt)"
+        required: true
+        type: string
+      output_name:
+        description: "Nama file output (tanpa .mp4)"
+        required: false
+        default: "encoded_video"
+        type: string
 
 jobs:
-  convert-videos:
+  encode:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg jq curl fonts-crosextra-carlito
 
-    - name: Setup rclone configuration
-      run: |
-        mkdir -p ~/.config/rclone
-        echo "${{ secrets.RCLONE_CONF_BASE64 }}" | base64 -d > ~/.config/rclone/rclone.conf
+      - name: Download Video & Subtitle
+        run: |
+          echo "Download video..."
+          curl -L "${{ inputs.video_url }}" -o input_video
+          
+          echo "Download subtitle..."
+          curl -L "${{ inputs.srt_url }}" -o subtitle.srt
 
-    - name: Install rclone
-      run: |
-        curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
-        sudo dpkg -i rclone-current-linux-amd64.deb
-        rm rclone-current-linux-amd64.deb
+      - name: Encode Video (H264 + AAC + 1080p + Hardsub)
+        run: |
+          ffmpeg -y \
+            -i input_video \
+            -vf "subtitles=subtitle.srt:force_style='FontName=Segoe UI,FontSize=18,PrimaryColour=&H00FFFF&,Outline=1,Shadow=0'" \
+            -c:v libx264 \
+            -profile:v high \
+            -level 4.2 \
+            -pix_fmt yuv420p \
+            -preset slow \
+            -crf 18 \
+            -vf scale=1920:1080 \
+            -c:a aac \
+            -b:a 192k \
+            "${{ inputs.output_name }}.mp4"
 
-    - name: Install FFmpeg
-      run: |
-        sudo apt update
-        sudo apt install -y ffmpeg
+      - name: Get Upload Server
+        run: |
+          RESPONSE=$(curl -s "https://up4stream.com/api/upload/server?key=${{ secrets.UP4STREAM_KEY }}")
+          echo "$RESPONSE"
+          SERVER=$(echo "$RESPONSE" | jq -r '.result')
+          echo "UPLOAD_SERVER=$SERVER" >> $GITHUB_ENV
 
-    - name: Create working directories
-      run: |
-        mkdir -p input output
-
-    - name: Download MKV and SRT files from Google Drive
-      run: |
-        rclone copy "gdrive:${{ secrets.GDRIVE_FOLDER_PATH }}" input \
-          --include "*.mkv" --include "*.srt" \
-          --progress --verbose
-
-    - name: Process videos with hardsub
-      run: |
-        cd input
-        for mkv_file in *.mkv; do
-          if [ -f "$mkv_file" ]; then
-            base_name="${mkv_file%.*}"
-            srt_file="${base_name}.srt"
-            output_file="${base_name}.mp4"
-            
-            echo "Processing: $mkv_file"
-            
-            if [ -f "$srt_file" ]; then
-              echo "Found matching subtitle: $srt_file"
-              cd ..
-              ffmpeg -i "input/$mkv_file" \
-                -vf "subtitles=input/$srt_file:force_style='FontName=Arial,FontSize=18'" \
-                -c:v libx264 -crf 18 -preset medium \
-                -c:a copy \
-                -y "output/$output_file"
-              cd input
-            else
-              echo "No matching subtitle found for $mkv_file, skipping..."
-            fi
-          fi
-        done
-
-    - name: Upload processed videos to Google Drive
-      run: |
-        rclone copy output "gdrive:${{ secrets.GDRIVE_FOLDER_PATH }}/hardsub" \
-          --progress --verbose
-
-    - name: Clean up
-      run: |
-        rm -rf input output
+      - name: Upload to Up4Stream
+        run: |
+          curl -X POST \
+            -F "key=${{ secrets.UP4STREAM_KEY }}" \
+            -F "file=@${{ inputs.output_name }}.mp4" \
+            "$UPLOAD_SERVER"
