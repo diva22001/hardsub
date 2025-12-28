@@ -33,17 +33,17 @@ jobs:
           curl -L "${{ inputs.video_url }}" -o input_video
           
           echo "Download subtitle..."
-          # Download ke file sementara lalu convert ke SRT standar
-          # Ini menangani .vtt dan .srt sekaligus
+          # Menangani konversi VTT/SRT ke SRT standar agar kompatibel dengan filter
           curl -L "${{ inputs.srt_url }}" -o raw_sub
           ffmpeg -i raw_sub subtitle.srt
 
-      - name: Encode Video (H264 + AAC + 1080p + Hardsub)
+      - name: Encode Video (YouTube 1080p Settings + Hardsub)
         run: |
-          # Flag penjelasan:
-          # -hide_banner : Menyembunyikan info versi FFmpeg saat mulai.
-          # -nostats     : Mematikan progress bar dinamis (log jadi statis).
-          # -loglevel warning : Hanya menampilkan pesan error/warning (opsional, agar log lebih bersih).
+          # Konfigurasi mengikuti rekomendasi upload YouTube:
+          # - Bitrate: ~8-10 Mbps (max-rate 12M)
+          # - Audio: AAC-LC 384k
+          # - GOP: 2 detik (GOP 60 untuk asumsi 30fps)
+          # - Color: BT.709 (HD)
           
           ffmpeg -y -hide_banner -nostats \
             -i input_video \
@@ -51,11 +51,18 @@ jobs:
             -c:v libx264 \
             -profile:v high \
             -level 4.2 \
-            -pix_fmt yuv420p \
             -preset slow \
-            -crf 18 \
+            -b:v 10M \
+            -maxrate 12M \
+            -bufsize 16M \
+            -pix_fmt yuv420p \
+            -g 60 \
+            -bf 2 \
+            -color_primaries 1 -color_trc 1 -colorspace 1 \
             -c:a aac \
-            -b:a 192k \
+            -b:a 384k \
+            -ar 48000 \
+            -movflags +faststart \
             "${{ inputs.output_name }}.mp4"
 
       - name: Get Upload Server
