@@ -33,34 +33,28 @@ jobs:
           curl -L "${{ inputs.video_url }}" -o input_video
           
           echo "Download subtitle..."
-          # Menangani konversi VTT/SRT ke SRT standar agar kompatibel dengan filter
+          # Konversi otomatis VTT/SRT ke SRT standar
           curl -L "${{ inputs.srt_url }}" -o raw_sub
           ffmpeg -i raw_sub subtitle.srt
 
-      - name: Encode Video (YouTube 1080p Settings + Hardsub)
+      - name: Encode Video (H264 + AAC + 1080p + Hardsub)
         run: |
-          # Konfigurasi mengikuti rekomendasi upload YouTube:
-          # - Bitrate: ~8-10 Mbps (max-rate 12M)
-          # - Audio: AAC-LC 384k
-          # - GOP: 2 detik (GOP 60 untuk asumsi 30fps)
-          # - Color: BT.709 (HD)
+          # Spesifikasi Target:
+          # - Resolution: 1920x1080
+          # - Video Codec: H264 @ 2314 Kbps
+          # - Audio Codec: AAC @ 189 Kbps
           
           ffmpeg -y -hide_banner -nostats \
             -i input_video \
             -vf "subtitles=subtitle.srt:force_style='FontName=Segoe UI,FontSize=18,PrimaryColour=&H00FFFF&,Outline=1,Shadow=0',scale=1920:1080" \
             -c:v libx264 \
-            -profile:v high \
-            -level 4.2 \
-            -preset slow \
-            -b:v 10M \
-            -maxrate 12M \
-            -bufsize 16M \
+            -b:v 2314k \
+            -maxrate 2314k \
+            -bufsize 4628k \
             -pix_fmt yuv420p \
-            -g 60 \
-            -bf 2 \
-            -color_primaries 1 -color_trc 1 -colorspace 1 \
+            -preset slow \
             -c:a aac \
-            -b:a 384k \
+            -b:a 189k \
             -ar 48000 \
             -movflags +faststart \
             "${{ inputs.output_name }}.mp4"
