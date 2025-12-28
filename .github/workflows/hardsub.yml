@@ -33,14 +33,19 @@ jobs:
           curl -L "${{ inputs.video_url }}" -o input_video
           
           echo "Download subtitle..."
-          # Download ke file sementara (raw_sub) lalu convert ke SRT standar
-          # Ini otomatis menangani VTT maupun SRT agar kompatibel dengan filter hardsub
+          # Download ke file sementara lalu convert ke SRT standar
+          # Ini menangani .vtt dan .srt sekaligus
           curl -L "${{ inputs.srt_url }}" -o raw_sub
           ffmpeg -i raw_sub subtitle.srt
 
       - name: Encode Video (H264 + AAC + 1080p + Hardsub)
         run: |
-          ffmpeg -y \
+          # Flag penjelasan:
+          # -hide_banner : Menyembunyikan info versi FFmpeg saat mulai.
+          # -nostats     : Mematikan progress bar dinamis (log jadi statis).
+          # -loglevel warning : Hanya menampilkan pesan error/warning (opsional, agar log lebih bersih).
+          
+          ffmpeg -y -hide_banner -nostats \
             -i input_video \
             -vf "subtitles=subtitle.srt:force_style='FontName=Segoe UI,FontSize=18,PrimaryColour=&H00FFFF&,Outline=1,Shadow=0',scale=1920:1080" \
             -c:v libx264 \
